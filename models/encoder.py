@@ -36,27 +36,28 @@ class ResidualBlock(nn.Module):
         out += identity
         return F.relu(out)
 
-# 2. Define min pooling layer
-class MinPool2d(nn.Module):
-    def __init__(self, kernel_size, stride=None, padding=0):
+# 2. Define GeM pooling
+class GeMPool2d(nn.Module):
+    def __init__(self, p=3.0, eps=1e-6):
         super().__init__()
-        self.maxpool = nn.MaxPool2d(kernel_size, stride, padding)
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
 
     def forward(self, x):
-        return -self.maxpool(-x)
+        return F.adaptive_avg_pool2d(x.clamp(min=self.eps).pow(self.p), (1,1)).pow(1./self.p)
 
 
-# 3. Define MelEncoder with configurable pooling type (max or min)
-class MelEncoder(nn.Module):
+# 3. Define EarlyBranch with configurable pooling type (max or avg)
+class EarlyBranch(nn.Module):
     def __init__(self, pool_type="max"):
         super().__init__()
 
         if pool_type == "max":
             Pool = nn.MaxPool2d
-        elif pool_type == "min":
-            Pool = MinPool2d
+        elif pool_type == "avg":
+            Pool = nn.AvgPool2d
         else:
-            raise ValueError("pool_type must be 'max' or 'min'")
+            raise ValueError()
 
         self.block1 = ResidualBlock(1, 32)
         self.pool1 = Pool(2)
@@ -64,19 +65,30 @@ class MelEncoder(nn.Module):
         self.block2 = ResidualBlock(32, 64)
         self.pool2 = Pool(2)
 
-        self.block3 = ResidualBlock(64, 128)
-        self.pool3 = Pool(2)
-
-        self.block4 = ResidualBlock(128, 256)
-        self.pool4 = Pool(2)
-
     def forward(self, x):
+
         x = self.pool1(self.block1(x))
         x = self.pool2(self.block2(x))
-        x = self.pool3(self.block3(x))
-        x = self.pool4(self.block4(x))
-
-        # NO adaptive pooling
-        x = torch.flatten(x, 1)
 
         return x
+    
+
+# 4. Define DeepEncoder for deeper feature extraction after fusion
+class DeepEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.block3 = ResidualBlock(128, 128)
+        self.block4 = ResidualBlock(128, 256)
+
+        self.gem = GeMPool2d()
+
+    def forward(self, x):
+
+        x = self.block3(x)
+        x = self.block4(x)
+
+        x = self.gem(x)
+
+        return torch.flatten(x, 1)
+

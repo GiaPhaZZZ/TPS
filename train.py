@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,29 +10,37 @@ from torch.utils.data import DataLoader
 from prepare_data.create_mel_dataset import process_gtzan
 from build_dataset.build_dataset import get_samples, MelNPYDataset 
 from build_dataset.seed import set_seed
+from build_dataset.augmentation import mixup_data
 
-from models.dual_pooling_fusion import DualMelFusion
+from models.fusion_mel import DualMelFusion
 
 import warnings
 warnings.filterwarnings("ignore")
-
 
 # CONFIG
 DATASET_PATH = "./genres_original"
 PROCESSED_PATH = "./gtzan_mel_3s"
 CHECKPOINT_DIR = "./checkpoints"
 
-EPOCHS = 1
-BATCH_SIZE = 16
+EPOCHS = 1000
+BATCH_SIZE = 32
 NUM_CLASSES = 10
 NUM_WORKERS = 2
-PATIENCE = 30
+PATIENCE = 35
 SEED = 42
 
 
 # SETUP
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 set_seed(SEED)
+
+def seed_worker(worker_id):
+    worker_seed = SEED + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+g = torch.Generator()
+g.manual_seed(SEED)
 
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
@@ -48,18 +57,16 @@ val_samples, _ = get_samples(PROCESSED_PATH, "valid")
 train_ds = MelNPYDataset(train_samples, train=True)
 val_ds = MelNPYDataset(val_samples, train=False)
 
-train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
-val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True)
-
+train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True, worker_init_fn=seed_worker, generator=g)
+val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True, worker_init_fn=seed_worker)
 
 # MODEL
 # ==============================
 model = DualMelFusion(num_classes=NUM_CLASSES).to(device)
 
-criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4 )
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6)
-
+criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
 
 # TRAINING LOOP
 # ===============================
@@ -93,24 +100,39 @@ def train():
         model.train()
         train_loss, correct, total = 0.0, 0, 0
 
-        for mel, mel_comp, y in train_loader:
+        for mel, y in train_loader:
 
             mel = mel.to(device, non_blocking=True)
-            mel_comp = mel_comp.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
 
-            out = model(mel, mel_comp)
-            loss = criterion(out, y)
+            use_mixup = np.random.rand() < 0.9
+            
+            if use_mixup:
+                mel, y_a, y_b, lam = mixup_data(mel, y)
+            
+            out = model(mel)
+            
+            if use_mixup:
+                loss = lam * criterion(out, y_a) + (1 - lam) * criterion(out, y_b)
+            else:
+                loss = criterion(out, y)
 
             loss.backward()
             optimizer.step()
 
             preds = out.argmax(dim=1)
 
+            if use_mixup:
+                correct += (
+                    lam * (preds == y_a).sum().item() +
+                    (1 - lam) * (preds == y_b).sum().item()
+                )
+            else:
+                correct += (preds == y).sum().item()
+            
             train_loss += loss.item() * y.size(0)
-            correct += (preds == y).sum().item()
             total += y.size(0)
 
         train_loss /= total
@@ -121,13 +143,12 @@ def train():
         val_loss, correct, total = 0.0, 0, 0
 
         with torch.no_grad():
-            for mel, mel_comp, y in val_loader:
+            for mel, y in val_loader:
 
                 mel = mel.to(device, non_blocking=True)
-                mel_comp = mel_comp.to(device, non_blocking=True)
                 y = y.to(device, non_blocking=True)
 
-                out = model(mel, mel_comp)
+                out = model(mel)
                 loss = criterion(out, y)
 
                 preds = out.argmax(dim=1)
@@ -139,7 +160,6 @@ def train():
         val_loss /= total
         val_acc = correct / total
         
-
         # ===================== TIMING =====================
         epoch_duration = time.time() - epoch_start
         
@@ -180,7 +200,7 @@ def train():
             f"Acc: {train_acc:.4f}/{val_acc:.4f} | "
             f"{epoch_duration:.2f}s (Avg: {avg_epoch_time:.2f}s) {marker}")
 
-        scheduler.step(val_loss)
+        scheduler.step()
 
         if COUNTER >= PATIENCE:
             print(f"\nEarly stopping at epoch {epoch}")

@@ -1,4 +1,5 @@
 import os
+import random
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -41,20 +42,29 @@ class MelNPYDataset(Dataset):
     def __getitem__(self, idx):
         npy_path, label = self.samples[idx]
 
-        # Load numpy array
         mel = np.load(npy_path)
 
-        # Convert once to tensor
-        mel = torch.from_numpy(mel).float()
+        mel = torch.tensor(mel, dtype=torch.float32)
 
+        # If stored as (128,130), add channel
         if mel.dim() == 2:
             mel = mel.unsqueeze(0)
-
-        # Apply augmentation only in train mode
-        if self.train and self.augment is not None:
+        
+        mel = (mel - mel.mean()) / (mel.std() + 1e-6)
+        
+        # ---- Random Time Crop ----
+        crop_size = 120
+        T = mel.shape[-1]
+        
+        if T > crop_size:
+            if self.train:
+                start = random.randint(0, T - crop_size)
+            else:
+                start = (T - crop_size) // 2
+        
+            mel = mel[:, :, start:start + crop_size]
+        
+        if self.train:
             mel = self.augment(mel)
 
-        # Compute complementary mel AFTER augmentation
-        mel_comp = mel.max() - mel
-
-        return mel, mel_comp, label
+        return mel, label
