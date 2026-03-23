@@ -11,7 +11,6 @@ def get_samples(root_dir, split_name):
     split_path = os.path.join(root_dir, split_name)
     samples = []
 
-    # Get genres (folders like 'blues', 'classical', etc.)
     genres = sorted([
         g for g in os.listdir(split_path)
         if os.path.isdir(os.path.join(split_path, g))
@@ -21,7 +20,6 @@ def get_samples(root_dir, split_name):
     for genre in genres:
         genre_path = os.path.join(split_path, genre)
         
-        # Look for .npy files directly inside the genre folder
         for file_name in os.listdir(genre_path):
             if file_name.endswith(".npy"):
                 npy_path = os.path.join(genre_path, file_name)
@@ -46,13 +44,11 @@ class MelNPYDataset(Dataset):
 
         mel = torch.tensor(mel, dtype=torch.float32)
 
-        # If stored as (128,130), add channel
         if mel.dim() == 2:
             mel = mel.unsqueeze(0)
         
         mel = (mel - mel.mean()) / (mel.std() + 1e-6)
         
-        # ---- Random Time Crop ----
         crop_size = 120
         T = mel.shape[-1]
         

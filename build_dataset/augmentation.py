@@ -16,7 +16,6 @@ class SpecAugment:
         self.p = p
 
     def __call__(self, spec):
-        # spec: (3, 128, 130)
 
         if random.random() > self.p:
             return spec
@@ -24,14 +23,12 @@ class SpecAugment:
         spec = spec.clone()
 
         C, F, T = spec.shape
-
-        # --- Time Masking ---
+        
         for _ in range(self.num_time_masks):
             t = random.randint(0, self.time_mask_param)
             t0 = random.randint(0, max(1, T - t))
             spec[:, :, t0:t0+t] = 0
 
-        # --- Frequency Masking ---
         for _ in range(self.num_freq_masks):
             f = random.randint(0, self.freq_mask_param)
             f0 = random.randint(0, max(1, F - f))
@@ -45,7 +42,6 @@ class SpectrogramAugmentation:
         self.specaugment = SpecAugment()
 
     def __call__(self, spec):
-        # Random time shift
         if random.random() < 0.5:
             shift = random.randint(-10, 10)
             spec = torch.roll(spec, shifts=shift, dims=2)

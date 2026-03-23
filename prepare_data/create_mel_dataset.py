@@ -4,9 +4,6 @@ import librosa
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-# ==========================
-# CONFIG (can be overridden)
-# ==========================
 DEFAULT_CFG = {
     "sample_rate": 22050,
     "segment_duration": 3,
@@ -19,9 +16,7 @@ DEFAULT_CFG = {
     "random_state": 42,
 }
 
-# ==========================
 # Utility functions
-# ==========================
 def compute_logmel(signal, sr, n_fft, hop_length, n_mels, target_frames):
     mel = librosa.feature.melspectrogram( y=signal,
         sr=sr,
@@ -45,9 +40,7 @@ def compute_logmel(signal, sr, n_fft, hop_length, n_mels, target_frames):
     return mel_db.astype(np.float32)
 
 
-# ==========================
 # Dataset processing
-# ==========================
 def process_gtzan(
     dataset_path,
     output_path,
@@ -72,7 +65,6 @@ def process_gtzan(
         genre_path = os.path.join(dataset_path, genre)
         files = [f for f in os.listdir(genre_path) if f.endswith(".wav")]
 
-        # 70 / 10 / 20 split
         train_files, temp_files = train_test_split(
             files, test_size=0.3, random_state=cfg["random_state"]
         )
