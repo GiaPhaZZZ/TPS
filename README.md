@@ -11,4 +11,4 @@ model design.
 
 Our custom dataset is publicly available at : https://www.kaggle.com/datasets/giaphatnguyen/museset
 
-![Model Architecture](images/3p_architecture.png)
+![Model Architecture](images/TPS.png)
