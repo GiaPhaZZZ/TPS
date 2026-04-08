@@ -8,7 +8,6 @@ ways, which are then fused to obtain a comprehensive representation. Meanwhile, 
 Experimental results show that the effectiveness of our proposed TPS architect, which achieves 90.4\% accuracy on the GTZAN dataset and 83.08\% on a self-collected
 dataset. This indicates that the hybrid pooling mechanism and residual architecture are not only able to provide strong performance but also maintain an efficient
 model design.
->>>>>>> 820b430667eef397952d89ce56064ac347d3d299
 
 Our custom dataset is publicly available at : https://www.kaggle.com/datasets/giaphatnguyen/museset
 
